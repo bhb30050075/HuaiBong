@@ -1,0 +1,595 @@
+
+// ข้อมูลการตั้งค่า
+const SPREADSHEET_ID = '1_5Enn3m8Qf2_AtBV3K4_OsZPaKI5VXANf1jtsH7ojxg';
+const SHEETS = {
+  'ครุภัณฑ์': 'ครุภัณฑ์',
+  'วัสดุคงทน': 'วัสดุคงทน', 
+  'วัสดุสิ้นเปลือง': 'วัสดุสิ้นเปลือง'
+};
+
+// คอลัมน์ข้อมูลตามระเบียบ สตง.
+const COLUMNS = [
+  'รหัสครุภัณฑ์/พัสดุ',
+  'ชื่อรายการ',
+  'หมวดหมู่',
+  'ราคาต่อหน่วย',
+  'จำนวน',
+  'มูลค่ารวม',
+  'วันที่จัดซื้อ',
+  'แหล่งเงิน',
+  'ใช้ประจำที่',
+  'สถานะ',
+  'หมายเหตุ',
+  'วันที่บันทึก',
+  'ผู้บันทึก'
+];
+
+/**
+ * ฟังก์ชันหลักสำหรับจัดการ HTTP requests
+ */
+function doGet(e) {
+  try {
+    const action = e.parameter.action;
+    
+    switch(action) {
+      case 'get':
+        return ContentService
+          .createTextOutput(JSON.stringify(getAllData()))
+          .setMimeType(ContentService.MimeType.JSON);
+      
+      case 'getItem':
+        const code = e.parameter.code;
+        const category = e.parameter.category;
+        const item = getItemByCode(code, category);
+        return ContentService
+          .createTextOutput(JSON.stringify(item))
+          .setMimeType(ContentService.MimeType.JSON);
+      
+      case 'search':
+        const searchCode = e.parameter.code || '';
+        const searchName = e.parameter.name || '';
+        const results = searchData(searchCode, searchName);
+        return ContentService
+          .createTextOutput(JSON.stringify(results))
+          .setMimeType(ContentService.MimeType.JSON);
+      
+      default:
+        return ContentService
+          .createTextOutput(JSON.stringify({error: 'Invalid action'}))
+          .setMimeType(ContentService.MimeType.JSON);
+    }
+  } catch (error) {
+    Logger.log('doGet Error: ' + error.toString());
+    return ContentService
+      .createTextOutput(JSON.stringify({error: error.toString()}))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+}
+
+/**
+ * ฟังก์ชันหลักสำหรับจัดการ HTTP POST requests
+ */
+function doPost(e) {
+  try {
+    const action = e.parameter.action;
+    
+    switch(action) {
+      case 'add':
+        const result = addData(e.parameter);
+        return ContentService.createTextOutput(result);
+      
+      case 'update':
+        const updateResult = updateData(e.parameter);
+        return ContentService.createTextOutput(updateResult);
+      
+      case 'delete':
+        const deleteResult = deleteData(e.parameter.code, e.parameter.category);
+        return ContentService.createTextOutput(deleteResult);
+      
+      default:
+        return ContentService.createTextOutput('Invalid action');
+    }
+  } catch (error) {
+    Logger.log('doPost Error: ' + error.toString());
+    return ContentService.createTextOutput('Error: ' + error.toString());
+  }
+}
+
+/**
+ * เพิ่มข้อมูลใหม่
+ */
+function addData(params) {
+  try {
+    const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    const category = params.category;
+    
+    if (!SHEETS[category]) {
+      return 'Error: ประเภทไม่ถูกต้อง';
+    }
+    
+    let sheet = ss.getSheetByName(SHEETS[category]);
+    
+    // สร้าง sheet ใหม่หากไม่มี
+    if (!sheet) {
+      sheet = ss.insertSheet(SHEETS[category]);
+      // เพิ่มหัวคอลัมน์
+      sheet.getRange(1, 1, 1, COLUMNS.length).setValues([COLUMNS]);
+      sheet.getRange(1, 1, 1, COLUMNS.length).setFontWeight('bold');
+      sheet.getRange(1, 1, 1, COLUMNS.length).setBackground('#f0f0f0');
+    }
+    
+    // ตรวจสอบว่ามีหัวคอลัมน์หรือไม่
+    const lastRow = sheet.getLastRow();
+    if (lastRow === 0 || sheet.getRange(1, 1).getValue() !== COLUMNS[0]) {
+      if (lastRow === 0) {
+        sheet.getRange(1, 1, 1, COLUMNS.length).setValues([COLUMNS]);
+      } else {
+        sheet.insertRowBefore(1);
+        sheet.getRange(1, 1, 1, COLUMNS.length).setValues([COLUMNS]);
+      }
+      sheet.getRange(1, 1, 1, COLUMNS.length).setFontWeight('bold');
+      sheet.getRange(1, 1, 1, COLUMNS.length).setBackground('#f0f0f0');
+    }
+    
+    // ตรวจสอบรหัสซ้ำ (เฉพาะเมื่อมีข้อมูล)
+    const currentLastRow = sheet.getLastRow();
+    if (currentLastRow > 1) {
+      const existingCodes = sheet.getRange(2, 1, currentLastRow - 1, 1).getValues().flat();
+      if (existingCodes.includes(params.code)) {
+        return 'Error: รหัสครุภัณฑ์/พัสดุนี้มีอยู่แล้ว';
+      }
+    }
+    
+    // เตรียมข้อมูลสำหรับบันทึก
+    const rowData = [
+      params.code || '',
+      params.name || '',
+      params.subcategory || '',
+      parseFloat(params.price) || 0,
+      parseInt(params.quantity) || 0,
+      parseFloat(params.total) || 0,
+      params.purchaseDate || '',
+      params.budget || '',
+      params.department || '',
+      params.status || '',
+      params.notes || '',
+      new Date().toLocaleDateString('th-TH'),
+      Session.getActiveUser().getEmail()
+    ];
+    
+    // เพิ่มข้อมูลในแถวใหม่
+    sheet.appendRow(rowData);
+    
+    // จัดรูปแบบ
+    const newLastRow = sheet.getLastRow();
+    sheet.getRange(newLastRow, 4, 1, 3).setNumberFormat('#,##0.00'); // ราคา จำนวน มูลค่า
+    
+    return 'สำเร็จ: บันทึกข้อมูลเรียบร้อยแล้ว';
+    
+  } catch (error) {
+    Logger.log('addData Error: ' + error.toString());
+    return 'Error: ' + error.toString();
+  }
+}
+
+/**
+ * ดึงข้อมูลทั้งหมด
+ */
+function getAllData() {
+  try {
+    const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    let allData = [];
+    
+    Object.keys(SHEETS).forEach(category => {
+      try {
+        const sheet = ss.getSheetByName(SHEETS[category]);
+        if (sheet) {
+          const lastRow = sheet.getLastRow();
+          
+          // ตรวจสอบว่ามีข้อมูลมากกว่าแถวหัวข้อ
+          if (lastRow > 1) {
+            const numRows = lastRow - 1; // จำนวนแถวข้อมูล (ไม่รวมหัวข้อ)
+            
+            if (numRows > 0) {
+              const data = sheet.getRange(2, 1, numRows, COLUMNS.length).getValues();
+              
+              data.forEach(row => {
+                if (row[0] && row[0].toString().trim() !== '') { // ตรวจสอบว่ามีรหัสครุภัณฑ์และไม่ว่าง
+                  allData.push({
+                    code: row[0].toString(),
+                    name: row[1] ? row[1].toString() : '',
+                    category: category,
+                    subcategory: row[2] ? row[2].toString() : '',
+                    price: parseFloat(row[3]) || 0,
+                    quantity: parseInt(row[4]) || 0,
+                    total: parseFloat(row[5]) || 0,
+                    purchaseDate: row[6] ? row[6].toString() : '',
+                    budget: row[7] ? row[7].toString() : '',
+                    department: row[8] ? row[8].toString() : '',
+                    status: row[9] ? row[9].toString() : '',
+                    notes: row[10] ? row[10].toString() : '',
+                    recordDate: row[11] ? row[11].toString() : '',
+                    recorder: row[12] ? row[12].toString() : ''
+                  });
+                }
+              });
+            }
+          }
+        }
+      } catch (sheetError) {
+        Logger.log('Error processing sheet ' + category + ': ' + sheetError.toString());
+        // ข้ามไปยัง sheet ถัดไปหากเกิดข้อผิดพลาด
+      }
+    });
+    
+    return allData;
+  } catch (error) {
+    Logger.log('getAllData Error: ' + error.toString());
+    return [];
+  }
+}
+
+/**
+ * ดึงข้อมูลรายการเดียวตามรหัส
+ */
+function getItemByCode(code, category) {
+  try {
+    const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    
+    if (!SHEETS[category]) {
+      return null;
+    }
+    
+    const sheet = ss.getSheetByName(SHEETS[category]);
+    if (!sheet) {
+      return null;
+    }
+    
+    const lastRow = sheet.getLastRow();
+    if (lastRow <= 1) {
+      return null;
+    }
+    
+    // หาแถวที่ต้องการ
+    const codes = sheet.getRange(2, 1, lastRow - 1, 1).getValues().flat();
+    const rowIndex = codes.indexOf(code) + 2;
+    
+    if (rowIndex < 2) {
+      return null;
+    }
+    
+    // ดึงข้อมูลแถวนั้น
+    const rowData = sheet.getRange(rowIndex, 1, 1, COLUMNS.length).getValues()[0];
+    
+    return {
+      code: rowData[0].toString(),
+      name: rowData[1] ? rowData[1].toString() : '',
+      category: category,
+      subcategory: rowData[2] ? rowData[2].toString() : '',
+      price: parseFloat(rowData[3]) || 0,
+      quantity: parseInt(rowData[4]) || 0,
+      total: parseFloat(rowData[5]) || 0,
+      purchaseDate: rowData[6] ? rowData[6].toString() : '',
+      budget: rowData[7] ? rowData[7].toString() : '',
+      department: rowData[8] ? rowData[8].toString() : '',
+      status: rowData[9] ? rowData[9].toString() : '',
+      notes: rowData[10] ? rowData[10].toString() : '',
+      recordDate: rowData[11] ? rowData[11].toString() : '',
+      recorder: rowData[12] ? rowData[12].toString() : ''
+    };
+    
+  } catch (error) {
+    Logger.log('getItemByCode Error: ' + error.toString());
+    return null;
+  }
+}
+
+/**
+ * ค้นหาข้อมูล
+ */
+function searchData(searchCode, searchName) {
+  try {
+    const allData = getAllData();
+    
+    return allData.filter(item => {
+      const matchCode = !searchCode || item.code.toLowerCase().includes(searchCode.toLowerCase());
+      const matchName = !searchName || item.name.toLowerCase().includes(searchName.toLowerCase());
+      return matchCode && matchName;
+    });
+  } catch (error) {
+    Logger.log('searchData Error: ' + error.toString());
+    return [];
+  }
+}
+
+/**
+ * อัปเดทข้อมูล - ปรับปรุงใหม่
+ */
+function updateData(params) {
+  try {
+    const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    
+    // ใช้ข้อมูลเดิมสำหรับหาตำแหน่ง
+    const originalCode = params.originalCode || params.code;
+    const originalCategory = params.originalCategory || params.category;
+    const newCategory = params.category;
+    
+    if (!SHEETS[originalCategory] || !SHEETS[newCategory]) {
+      return 'Error: ประเภทไม่ถูกต้อง';
+    }
+    
+    const originalSheet = ss.getSheetByName(SHEETS[originalCategory]);
+    if (!originalSheet) {
+      return 'Error: ไม่พบ Sheet เดิม';
+    }
+    
+    const lastRow = originalSheet.getLastRow();
+    if (lastRow <= 1) {
+      return 'Error: ไม่มีข้อมูลในระบบ';
+    }
+    
+    // หาแถวที่ต้องการอัปเดท
+    const codes = originalSheet.getRange(2, 1, lastRow - 1, 1).getValues().flat();
+    const rowIndex = codes.indexOf(originalCode) + 2;
+    
+    if (rowIndex < 2) {
+      return 'Error: ไม่พบรหัสครุภัณฑ์/พัสดุนี้';
+    }
+    
+    // เตรียมข้อมูลใหม่
+    const rowData = [
+      params.code || '',
+      params.name || '',
+      params.subcategory || '',
+      parseFloat(params.price) || 0,
+      parseInt(params.quantity) || 0,
+      parseFloat(params.total) || 0,
+      params.purchaseDate || '',
+      params.budget || '',
+      params.department || '',
+      params.status || '',
+      params.notes || '',
+      new Date().toLocaleDateString('th-TH'),
+      Session.getActiveUser().getEmail()
+    ];
+    
+    // ตรวจสอบว่าเปลี่ยนประเภทหรือไม่
+    if (originalCategory !== newCategory) {
+      // ลบจาก sheet เดิม
+      originalSheet.deleteRow(rowIndex);
+      
+      // เพิ่มใน sheet ใหม่
+      const newSheet = ss.getSheetByName(SHEETS[newCategory]);
+      if (!newSheet) {
+        return 'Error: ไม่พบ Sheet ใหม่';
+      }
+      
+      // ตรวจสอบรหัสซ้ำใน sheet ใหม่ (ถ้ารหัสเปลี่ยน)
+      if (originalCode !== params.code) {
+        const newLastRow = newSheet.getLastRow();
+        if (newLastRow > 1) {
+          const existingCodes = newSheet.getRange(2, 1, newLastRow - 1, 1).getValues().flat();
+          if (existingCodes.includes(params.code)) {
+            return 'Error: รหัสครุภัณฑ์/พัสดุนี้มีอยู่แล้วในประเภทใหม่';
+          }
+        }
+      }
+      
+      newSheet.appendRow(rowData);
+      const newRowIndex = newSheet.getLastRow();
+      newSheet.getRange(newRowIndex, 4, 1, 3).setNumberFormat('#,##0.00');
+      
+    } else {
+      // อัปเดทใน sheet เดิม
+      // ตรวจสอบรหัสซ้ำ (ถ้ารหัสเปลี่ยน)
+      if (originalCode !== params.code) {
+        const existingCodes = codes.filter((code, index) => index !== (rowIndex - 2)); // ไม่รวมแถวปัจจุบัน
+        if (existingCodes.includes(params.code)) {
+          return 'Error: รหัสครุภัณฑ์/พัสดุนี้มีอยู่แล้ว';
+        }
+      }
+      
+      originalSheet.getRange(rowIndex, 1, 1, COLUMNS.length).setValues([rowData]);
+      originalSheet.getRange(rowIndex, 4, 1, 3).setNumberFormat('#,##0.00');
+    }
+    
+    return 'สำเร็จ: อัปเดทข้อมูลเรียบร้อยแล้ว';
+    
+  } catch (error) {
+    Logger.log('updateData Error: ' + error.toString());
+    return 'Error: ' + error.toString();
+  }
+}
+
+/**
+ * ลบข้อมูล
+ */
+function deleteData(code, category) {
+  try {
+    const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    
+    if (!SHEETS[category]) {
+      return 'Error: ประเภทไม่ถูกต้อง';
+    }
+    
+    const sheet = ss.getSheetByName(SHEETS[category]);
+    if (!sheet) {
+      return 'Error: ไม่พบ Sheet';
+    }
+    
+    const lastRow = sheet.getLastRow();
+    if (lastRow <= 1) {
+      return 'Error: ไม่มีข้อมูลในระบบ';
+    }
+    
+    // หาแถวที่ต้องการลบ
+    const codes = sheet.getRange(2, 1, lastRow - 1, 1).getValues().flat();
+    const rowIndex = codes.indexOf(code) + 2;
+    
+    if (rowIndex < 2) {
+      return 'Error: ไม่พบรหัสครุภัณฑ์/พัสดุนี้';
+    }
+    
+    // สำรองข้อมูลก่อนลบ (บันทึกใน log)
+    const deletedData = sheet.getRange(rowIndex, 1, 1, COLUMNS.length).getValues()[0];
+    Logger.log('Deleted item: ' + JSON.stringify(deletedData));
+    
+    // ลบแถว
+    sheet.deleteRow(rowIndex);
+    
+    return 'สำเร็จ: ลบข้อมูลเรียบร้อยแล้ว';
+    
+  } catch (error) {
+    Logger.log('deleteData Error: ' + error.toString());
+    return 'Error: ' + error.toString();
+  }
+}
+
+/**
+ * สร้างรายงานสรุป
+ */
+function generateReport() {
+  try {
+    const allData = getAllData();
+    const report = {
+      totalItems: allData.length,
+      totalValue: allData.reduce((sum, item) => sum + (item.total || 0), 0),
+      byCategory: {},
+      byStatus: {},
+      byDepartment: {},
+      lastUpdated: new Date().toLocaleDateString('th-TH')
+    };
+    
+    // สรุปตามประเภท
+    Object.keys(SHEETS).forEach(category => {
+      const categoryData = allData.filter(item => item.category === category);
+      report.byCategory[category] = {
+        count: categoryData.length,
+        value: categoryData.reduce((sum, item) => sum + (item.total || 0), 0)
+      };
+    });
+    
+    // สรุปตามสถานะ
+    allData.forEach(item => {
+      const status = item.status || 'ไม่ระบุ';
+      if (!report.byStatus[status]) {
+        report.byStatus[status] = { count: 0, value: 0 };
+      }
+      report.byStatus[status].count++;
+      report.byStatus[status].value += item.total || 0;
+    });
+    
+    // สรุปตามหน่วยงาน
+    allData.forEach(item => {
+      const dept = item.department || 'ไม่ระบุ';
+      if (!report.byDepartment[dept]) {
+        report.byDepartment[dept] = { count: 0, value: 0 };
+      }
+      report.byDepartment[dept].count++;
+      report.byDepartment[dept].value += item.total || 0;
+    });
+    
+    return report;
+  } catch (error) {
+    Logger.log('generateReport Error: ' + error.toString());
+    return null;
+  }
+}
+
+/**
+ * ฟังก์ชันสำหรับทดสอบ
+ */
+function testFunction() {
+  Logger.log('Testing Google Apps Script...');
+  
+  // ทดสอบการเชื่อมต่อ Spreadsheet
+  try {
+    const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    Logger.log('Spreadsheet connected: ' + ss.getName());
+    
+    // ตรวจสอบ Sheets
+    Object.keys(SHEETS).forEach(category => {
+      let sheet = ss.getSheetByName(SHEETS[category]);
+      if (!sheet) {
+        sheet = ss.insertSheet(SHEETS[category]);
+        sheet.getRange(1, 1, 1, COLUMNS.length).setValues([COLUMNS]);
+        sheet.getRange(1, 1, 1, COLUMNS.length).setFontWeight('bold');
+        sheet.getRange(1, 1, 1, COLUMNS.length).setBackground('#f0f0f0');
+        Logger.log('Created sheet: ' + category);
+      } else {
+        Logger.log('Sheet exists: ' + category + ' (Rows: ' + sheet.getLastRow() + ')');
+      }
+    });
+    
+    Logger.log('Test completed successfully');
+  } catch (error) {
+    Logger.log('Test failed: ' + error.toString());
+  }
+}
+
+/**
+ * ฟังก์ชันสำหรับสำรองข้อมูล
+ */
+function backupData() {
+  try {
+    const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    const backupName = 'สำรองข้อมูล_' + new Date().toLocaleDateString('th-TH').replace(/\//g, '-');
+    const backup = ss.copy(backupName);
+    
+    Logger.log('Backup created: ' + backup.getId());
+    return 'สำเร็จ: สำรองข้อมูลเรียบร้อยแล้ว ID: ' + backup.getId();
+  } catch (error) {
+    Logger.log('Backup Error: ' + error.toString());
+    return 'Error: ' + error.toString();
+  }
+}
+
+/**
+ * ฟังก์ชันทดสอบการแก้ไข
+ */
+function testEdit() {
+  try {
+    // ทดสอบการเพิ่มข้อมูล
+    const addResult = addData({
+      category: 'ครุภัณฑ์',
+      code: 'TEST001',
+      name: 'ทดสอบการแก้ไข',
+      subcategory: 'ทดสอบ',
+      price: '1000',
+      quantity: '1',
+      total: '1000',
+      purchaseDate: '2024-01-01',
+      budget: 'งบประมาณแผ่นดิน',
+      department: 'ทดสอบ',
+      status: 'ใช้งานได้',
+      notes: 'ข้อมูลทดสอบ'
+    });
+    Logger.log('Add result: ' + addResult);
+    
+    // ทดสอบการแก้ไข
+    const updateResult = updateData({
+      originalCode: 'TEST001',
+      originalCategory: 'ครุภัณฑ์',
+      category: 'ครุภัณฑ์',
+      code: 'TEST001',
+      name: 'ทดสอบการแก้ไข (แก้ไขแล้ว)',
+      subcategory: 'ทดสอบ',
+      price: '1500',
+      quantity: '1',
+      total: '1500',
+      purchaseDate: '2024-01-01',
+      budget: 'งบประมาณแผ่นดิน',
+      department: 'ทดสอบ',
+      status: 'ใช้งานได้',
+      notes: 'ข้อมูลทดสอบ (แก้ไขแล้ว)'
+    });
+    Logger.log('Update result: ' + updateResult);
+    
+    // ทดสอบการลบ
+    const deleteResult = deleteData('TEST001', 'ครุภัณฑ์');
+    Logger.log('Delete result: ' + deleteResult);
+    
+  } catch (error) {
+    Logger.log('Test edit failed: ' + error.toString());
+  }
+}
