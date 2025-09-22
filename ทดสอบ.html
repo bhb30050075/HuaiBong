@@ -1,0 +1,1638 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ระบบจัดการครุภัณฑ์และพัสดุ ตามระเบียบ สตง.</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;500;600;700&display=swap');
+        body { font-family: 'Sarabun', sans-serif; }
+        
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0,0,0,0.5);
+            backdrop-filter: blur(5px);
+        }
+        
+        .modal.show {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .modal-content {
+            background: white;
+            border-radius: 12px;
+            padding: 0;
+            max-width: 95vw;
+            max-height: 95vh;
+            overflow-y: auto;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+            animation: modalSlideIn 0.3s ease-out;
+        }
+        
+        @keyframes modalSlideIn {
+            from {
+                opacity: 0;
+                transform: translateY(-50px) scale(0.95);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0) scale(1);
+            }
+        }
+        
+        .loading {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #3498db;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        .table-container {
+            max-height: 600px;
+            overflow-y: auto;
+            border: 1px solid #e5e7eb;
+            border-radius: 8px;
+        }
+        
+        .sticky-header {
+            position: sticky;
+            top: 0;
+            background: white;
+            z-index: 10;
+        }
+        
+        .action-buttons {
+            opacity: 0;
+            transition: opacity 0.2s;
+        }
+        
+        tr:hover .action-buttons {
+            opacity: 1;
+        }
+        
+        .status-badge {
+            display: inline-flex;
+            align-items: center;
+            padding: 0.25rem 0.75rem;
+            border-radius: 9999px;
+            font-size: 0.75rem;
+            font-weight: 500;
+        }
+        
+        .status-active { background-color: #dcfce7; color: #166534; }
+        .status-repair { background-color: #fef3c7; color: #92400e; }
+        .status-broken { background-color: #fee2e2; color: #991b1b; }
+        .status-disposed { background-color: #f3f4f6; color: #374151; }
+        .status-reserved { background-color: #e0e7ff; color: #3730a3; }
+        
+        .print-only {
+            display: none;
+        }
+        
+        @media print {
+            .no-print { display: none !important; }
+            .print-only { display: block !important; }
+            .table-container { max-height: none; overflow: visible; }
+            body { font-size: 12px; }
+        }
+        
+        .depreciation-info {
+            background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%);
+            border-left: 4px solid #0ea5e9;
+        }
+        
+        .warranty-expired {
+            background-color: #fef2f2;
+            border-left: 4px solid #ef4444;
+        }
+        
+        .warranty-expiring {
+            background-color: #fffbeb;
+            border-left: 4px solid #f59e0b;
+        }
+    </style>
+</head>
+<body class="bg-gray-50">
+    <!-- Header -->
+    <header class="bg-gradient-to-r from-blue-600 to-blue-800 text-white shadow-lg no-print">
+        <div class="container mx-auto px-4 py-6">
+            <div class="flex items-center justify-between">
+                <div class="flex items-center space-x-3">
+                    <i class="fas fa-boxes text-3xl"></i>
+                    <div>
+                        <h1 class="text-2xl font-bold">ระบบจัดการครุภัณฑ์และพัสดุ</h1>
+                        <p class="text-blue-100 text-sm">ตามระเบียบสำนักนายกรัฐมนตรีว่าด้วยการพัสดุ พ.ศ. 2560</p>
+                    </div>
+                </div>
+                <div class="flex items-center space-x-4">
+                    <button onclick="generateReport()" class="bg-purple-500 hover:bg-purple-600 px-4 py-2 rounded-lg transition-colors">
+                        <i class="fas fa-chart-bar mr-2"></i>รายงาน
+                    </button>
+                    <button onclick="exportData()" class="bg-green-500 hover:bg-green-600 px-4 py-2 rounded-lg transition-colors">
+                        <i class="fas fa-file-export mr-2"></i>ส่งออก
+                    </button>
+                    <button onclick="loadData()" class="bg-blue-500 hover:bg-blue-600 px-4 py-2 rounded-lg transition-colors">
+                        <i class="fas fa-sync-alt mr-2"></i>รีเฟรช
+                    </button>
+                    <button onclick="openAddModal()" class="bg-green-500 hover:bg-green-600 px-4 py-2 rounded-lg transition-colors">
+                        <i class="fas fa-plus mr-2"></i>เพิ่มรายการ
+                    </button>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- Print Header -->
+    <div class="print-only text-center py-4 border-b-2 border-gray-300">
+        <h1 class="text-xl font-bold">รายงานครุภัณฑ์และพัสดุ</h1>
+        <p class="text-sm text-gray-600">ตามระเบียบสำนักนายกรัฐมนตรีว่าด้วยการพัสดุ พ.ศ. 2560</p>
+        <p class="text-sm text-gray-600">วันที่พิมพ์: <span id="printDate"></span></p>
+    </div>
+
+    <!-- Main Content -->
+    <main class="container mx-auto px-4 py-8">
+        <!-- Advanced Search Section -->
+        <div class="bg-white rounded-lg shadow-md p-6 mb-8 no-print">
+            <h2 class="text-xl font-semibold mb-4 flex items-center">
+                <i class="fas fa-search mr-2 text-blue-600"></i>ค้นหาและกรองข้อมูล
+            </h2>
+            <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">รหัสครุภัณฑ์/พัสดุ</label>
+                    <input type="text" id="searchCode" placeholder="ค้นหาด้วยรหัส..." 
+                           class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">ชื่อรายการ</label>
+                    <input type="text" id="searchName" placeholder="ค้นหาด้วยชื่อ..." 
+                           class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">ประเภท</label>
+                    <select id="filterCategory" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+                        <option value="">ทุกประเภท</option>
+                        <option value="ครุภัณฑ์">ครุภัณฑ์</option>
+                        <option value="วัสดุคงทน">วัสดุคงทน</option>
+                        <option value="วัสดุสิ้นเปลือง">วัสดุสิ้นเปลือง</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">สถานะ</label>
+                    <select id="filterStatus" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+                        <option value="">ทุกสถานะ</option>
+                        <option value="ใช้งานได้">ใช้งานได้</option>
+                        <option value="ซ่อมแซม">ซ่อมแซม</option>
+                        <option value="ชำรุด">ชำรุด</option>
+                        <option value="จำหน่าย">จำหน่าย</option>
+                        <option value="สำรอง">สำรอง</option>
+                    </select>
+                </div>
+            </div>
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">หน่วยงาน</label>
+                    <input type="text" id="searchDepartment" placeholder="ค้นหาด้วยหน่วยงาน..." 
+                           class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">ช่วงราคา (บาท)</label>
+                    <div class="flex space-x-2">
+                        <input type="number" id="priceMin" placeholder="ต่ำสุด" 
+                               class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+                        <input type="number" id="priceMax" placeholder="สูงสุด" 
+                               class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+                    </div>
+                </div>
+                <div class="flex items-end space-x-2">
+                    <button onclick="searchData()" class="flex-1 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg transition-colors">
+                        <i class="fas fa-search mr-2"></i>ค้นหา
+                    </button>
+                    <button onclick="clearSearch()" class="bg-gray-500 hover:bg-gray-600 text-white px-4 py-2 rounded-lg transition-colors">
+                        <i class="fas fa-times mr-2"></i>ล้าง
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Statistics Cards -->
+        <div class="grid grid-cols-1 md:grid-cols-5 gap-6 mb-8">
+            <div class="bg-white rounded-lg shadow-md p-6">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <p class="text-sm font-medium text-gray-600">ครุภัณฑ์ทั้งหมด</p>
+                        <p class="text-2xl font-bold text-blue-600" id="totalEquipment">0</p>
+                    </div>
+                    <i class="fas fa-desktop text-3xl text-blue-600"></i>
+                </div>
+            </div>
+            <div class="bg-white rounded-lg shadow-md p-6">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <p class="text-sm font-medium text-gray-600">วัสดุคงทน</p>
+                        <p class="text-2xl font-bold text-green-600" id="totalDurable">0</p>
+                    </div>
+                    <i class="fas fa-tools text-3xl text-green-600"></i>
+                </div>
+            </div>
+            <div class="bg-white rounded-lg shadow-md p-6">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <p class="text-sm font-medium text-gray-600">วัสดุสิ้นเปลือง</p>
+                        <p class="text-2xl font-bold text-orange-600" id="totalConsumable">0</p>
+                    </div>
+                    <i class="fas fa-box text-3xl text-orange-600"></i>
+                </div>
+            </div>
+            <div class="bg-white rounded-lg shadow-md p-6">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <p class="text-sm font-medium text-gray-600">มูลค่ารวม</p>
+                        <p class="text-2xl font-bold text-purple-600" id="totalValue">0</p>
+                    </div>
+                    <i class="fas fa-coins text-3xl text-purple-600"></i>
+                </div>
+            </div>
+            <div class="bg-white rounded-lg shadow-md p-6">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <p class="text-sm font-medium text-gray-600">ค่าเสื่อมราคา</p>
+                        <p class="text-2xl font-bold text-red-600" id="totalDepreciation">0</p>
+                    </div>
+                    <i class="fas fa-chart-line-down text-3xl text-red-600"></i>
+                </div>
+            </div>
+        </div>
+
+        <!-- Alerts Section -->
+        <div id="alertsSection" class="mb-8 space-y-4">
+            <!-- Alerts will be populated here -->
+        </div>
+
+        <!-- Data Table -->
+        <div class="bg-white rounded-lg shadow-md overflow-hidden">
+            <div class="px-6 py-4 border-b border-gray-200 no-print">
+                <div class="flex items-center justify-between">
+                    <h2 class="text-xl font-semibold flex items-center">
+                        <i class="fas fa-table mr-2 text-blue-600"></i>รายการครุภัณฑ์และพัสดุ
+                    </h2>
+                    <div class="flex space-x-2">
+                        <button onclick="window.print()" class="bg-gray-600 hover:bg-gray-700 text-white px-4 py-2 rounded-lg transition-colors">
+                            <i class="fas fa-print mr-2"></i>พิมพ์
+                        </button>
+                        <button onclick="exportToCSV()" class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg transition-colors">
+                            <i class="fas fa-file-csv mr-2"></i>CSV
+                        </button>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="table-container">
+                <table class="min-w-full divide-y divide-gray-200">
+                    <thead class="bg-gray-50 sticky-header">
+                        <tr>
+                            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">รหัส</th>
+                            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">ชื่อรายการ</th>
+                            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">ประเภท</th>
+                            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">ราคา/หน่วย</th>
+                            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">จำนวน</th>
+                            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">มูลค่ารวม</th>
+                            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">สถานะ</th>
+                            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">หน่วยงาน</th>
+                            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">วันที่จัดซื้อ</th>
+                            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">อายุการใช้งาน</th>
+                            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">ค่าเสื่อมราคา</th>
+                            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">ผู้บันทึก</th>
+                            <th class="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider no-print">การจัดการ</th>
+                        </tr>
+                    </thead>
+                    <tbody id="dataTable" class="bg-white divide-y divide-gray-200">
+                        <!-- Data will be loaded here -->
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Loading Indicator -->
+        <div id="loadingIndicator" class="text-center py-8 hidden">
+            <div class="loading mx-auto mb-4"></div>
+            <p class="text-gray-600">กำลังโหลดข้อมูล...</p>
+        </div>
+    </main>
+
+    <!-- Add/Edit Modal -->
+    <div id="itemModal" class="modal">
+        <div class="modal-content w-full max-w-6xl">
+            <div class="bg-gradient-to-r from-blue-600 to-blue-800 text-white px-6 py-4 rounded-t-lg">
+                <div class="flex items-center justify-between">
+                    <h3 id="modalTitle" class="text-xl font-semibold">เพิ่มรายการใหม่</h3>
+                    <button onclick="closeModal()" class="text-white hover:text-gray-200 text-2xl">
+                        <i class="fas fa-times"></i>
+                    </button>
+                </div>
+            </div>
+            
+            <form id="itemForm" class="p-6">
+                <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                    <!-- Left Column - Basic Info -->
+                    <div class="space-y-4">
+                        <h4 class="font-semibold text-gray-800 border-b pb-2">ข้อมูลพื้นฐาน</h4>
+                        
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">
+                                <i class="fas fa-barcode mr-1"></i>รหัสครุภัณฑ์/พัสดุ *
+                            </label>
+                            <input type="text" id="itemCode" name="code" required 
+                                   class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                   placeholder="เช่น EQ001, MT001">
+                        </div>
+                        
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">
+                                <i class="fas fa-tag mr-1"></i>ชื่อรายการ *
+                            </label>
+                            <input type="text" id="itemName" name="name" required 
+                                   class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                   placeholder="ระบุชื่อครุภัณฑ์/พัสดุ">
+                        </div>
+                        
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">
+                                <i class="fas fa-list mr-1"></i>ประเภท *
+                            </label>
+                            <select id="itemCategory" name="category" required onchange="updateDepreciationRate()"
+                                    class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+                                <option value="">เลือกประเภท</option>
+                                <option value="ครุภัณฑ์">ครุภัณฑ์</option>
+                                <option value="วัสดุคงทน">วัสดุคงทน</option>
+                                <option value="วัสดุสิ้นเปลือง">วัสดุสิ้นเปลือง</option>
+                            </select>
+                        </div>
+                        
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">
+                                <i class="fas fa-layer-group mr-1"></i>หมวดหมู่ย่อย
+                            </label>
+                            <select id="itemSubcategory" name="subcategory" 
+                                    class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+                                <option value="">เลือกหมวดหมู่ย่อย</option>
+                            </select>
+                        </div>
+                        
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">
+                                <i class="fas fa-industry mr-1"></i>ยี่ห้อ/รุ่น
+                            </label>
+                            <input type="text" id="itemBrand" name="brand" 
+                                   class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                   placeholder="ระบุยี่ห้อและรุ่น">
+                        </div>
+                        
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">
+                                <i class="fas fa-hashtag mr-1"></i>หมายเลขซีเรียล
+                            </label>
+                            <input type="text" id="itemSerial" name="serial" 
+                                   class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                   placeholder="หมายเลขซีเรียล">
+                        </div>
+                    </div>
+                    
+                    <!-- Middle Column - Financial Info -->
+                    <div class="space-y-4">
+                        <h4 class="font-semibold text-gray-800 border-b pb-2">ข้อมูลทางการเงิน</h4>
+                        
+                        <div class="grid grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-2">
+                                    <i class="fas fa-money-bill mr-1"></i>ราคาต่อหน่วย *
+                                </label>
+                                <input type="number" id="itemPrice" name="price" required step="0.01" min="0"
+                                       class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                       placeholder="0.00" onchange="calculateTotal()">
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-2">
+                                    <i class="fas fa-sort-numeric-up mr-1"></i>จำนวน *
+                                </label>
+                                <input type="number" id="itemQuantity" name="quantity" required min="1"
+                                       class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                       placeholder="1" onchange="calculateTotal()">
+                            </div>
+                        </div>
+                        
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">
+                                <i class="fas fa-calculator mr-1"></i>มูลค่ารวม
+                            </label>
+                            <input type="number" id="itemTotal" name="total" readonly step="0.01"
+                                   class="w-full px-3 py-2 border border-gray-300 rounded-lg bg-gray-50 text-gray-600"
+                                   placeholder="คำนวณอัตโนมัติ">
+                        </div>
+                        
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">
+                                <i class="fas fa-piggy-bank mr-1"></i>แหล่งเงิน *
+                            </label>
+                            <select id="itemBudget" name="budget" required
+                                    class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+                                <option value="">เลือกแหล่งเงิน</option>
+                                <option value="งบประมาณแผ่นดิน">งบประมาณแผ่นดิน</option>
+                                <option value="งบประมาณเงินรายได้">งบประมาณเงินรายได้</option>
+                                <option value="เงินบริจาค">เงินบริจาค</option>
+                                <option value="เงินอุดหนุน">เงินอุดหนุน</option>
+                                <option value="อื่นๆ">อื่นๆ</option>
+                            </select>
+                        </div>
+                        
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">
+                                <i class="fas fa-file-invoice mr-1"></i>เลขที่ใบสั่งซื้อ/สัญญา
+                            </label>
+                            <input type="text" id="itemPurchaseOrder" name="purchaseOrder" 
+                                   class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                   placeholder="เลขที่เอกสาร">
+                        </div>
+                        
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">
+                                <i class="fas fa-store mr-1"></i>ผู้จำหน่าย/ผู้รับเหมา
+                            </label>
+                            <input type="text" id="itemSupplier" name="supplier" 
+                                   class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                   placeholder="ชื่อผู้จำหน่าย">
+                        </div>
+                        
+                        <div class="depreciation-info p-4 rounded-lg">
+                            <h5 class="font-medium text-gray-800 mb-2">ข้อมูลค่าเสื่อมราคา</h5>
+                            <div class="grid grid-cols-2 gap-4">
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-2">อัตราค่าเสื่อม (%/ปี)</label>
+                                    <input type="number" id="itemDepreciationRate" name="depreciationRate" step="0.01" min="0" max="100"
+                                           class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                           placeholder="0.00" onchange="calculateDepreciation()">
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-2">อายุการใช้งาน (ปี)</label>
+                                    <input type="number" id="itemUsefulLife" name="usefulLife" min="1"
+                                           class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                           placeholder="5" onchange="calculateDepreciation()">
+                                </div>
+                            </div>
+                            <div class="mt-2">
+                                <label class="block text-sm font-medium text-gray-700 mb-2">ค่าเสื่อมราคาสะสม</label>
+                                <input type="number" id="itemAccumulatedDepreciation" name="accumulatedDepreciation" readonly
+                                       class="w-full px-3 py-2 border border-gray-300 rounded-lg bg-gray-50 text-gray-600"
+                                       placeholder="คำนวณอัตโนมัติ">
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Right Column - Administrative Info -->
+                    <div class="space-y-4">
+                        <h4 class="font-semibold text-gray-800 border-b pb-2">ข้อมูลการบริหาร</h4>
+                        
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">
+                                <i class="fas fa-calendar mr-1"></i>วันที่จัดซื้อ *
+                            </label>
+                            <input type="date" id="itemPurchaseDate" name="purchaseDate" required onchange="calculateDepreciation()"
+                                   class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+                        </div>
+                        
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">
+                                <i class="fas fa-calendar-check mr-1"></i>วันที่รับของ
+                            </label>
+                            <input type="date" id="itemReceiveDate" name="receiveDate" 
+                                   class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+                        </div>
+                        
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">
+                                <i class="fas fa-shield-alt mr-1"></i>ระยะเวลาประกัน (เดือน)
+                            </label>
+                            <input type="number" id="itemWarrantyPeriod" name="warrantyPeriod" min="0"
+                                   class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                   placeholder="12" onchange="calculateWarrantyExpiry()">
+                        </div>
+                        
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">
+                                <i class="fas fa-calendar-times mr-1"></i>วันหมดประกัน
+                            </label>
+                            <input type="date" id="itemWarrantyExpiry" name="warrantyExpiry" readonly
+                                   class="w-full px-3 py-2 border border-gray-300 rounded-lg bg-gray-50 text-gray-600">
+                        </div>
+                        
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">
+                                <i class="fas fa-building mr-1"></i>หน่วยงาน *
+                            </label>
+                            <select id="itemDepartment" name="department" required
+                                    class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+                                <option value="">เลือกหน่วยงาน</option>
+                                <option value="งานเทคโนโลยี">งานเทคโนโลยี</option>
+                                <option value="งานสำนักงาน">งานสำนักงาน</option>
+                                <option value="งานอำนวยการ">งานอำนวยการ</option>
+                                <option value="งานการเงิน">งานการเงิน</option>
+                                <option value="งานบุคคล">งานบุคคล</option>
+                                <option value="งานพัสดุ">งานพัสดุ</option>
+                            </select>
+                        </div>
+                        
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">
+                                <i class="fas fa-map-marker-alt mr-1"></i>สถานที่ตั้ง
+                            </label>
+                            <input type="text" id="itemLocation" name="location" 
+                                   class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                   placeholder="ระบุสถานที่ตั้ง">
+                        </div>
+                        
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">
+                                <i class="fas fa-user-tie mr-1"></i>ผู้รับผิดชอบ
+                            </label>
+                            <input type="text" id="itemResponsible" name="responsible" 
+                                   class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                   placeholder="ชื่อผู้รับผิดชอบ">
+                        </div>
+                        
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">
+                                <i class="fas fa-info-circle mr-1"></i>สถานะ *
+                            </label>
+                            <select id="itemStatus" name="status" required
+                                    class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+                                <option value="">เลือกสถานะ</option>
+                                <option value="ใช้งานได้">ใช้งานได้</option>
+                                <option value="ซ่อมแซม">ซ่อมแซม</option>
+                                <option value="ชำรุด">ชำรุด</option>
+                                <option value="จำหน่าย">จำหน่าย</option>
+                                <option value="สำรอง">สำรอง</option>
+                            </select>
+                        </div>
+                        
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">
+                                <i class="fas fa-user mr-1"></i>ผู้บันทึกข้อมูล *
+                            </label>
+                            <input type="text" id="itemRecorder" name="recorder" required
+                                   class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                   placeholder="ชื่อผู้บันทึกข้อมูล">
+                        </div>
+                        
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">
+                                <i class="fas fa-sticky-note mr-1"></i>หมายเหตุ
+                            </label>
+                            <textarea id="itemNotes" name="notes" rows="3" 
+                                      class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                      placeholder="ข้อมูลเพิ่มเติม..."></textarea>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="flex justify-end space-x-4 mt-8 pt-6 border-t border-gray-200">
+                    <button type="button" onclick="closeModal()" 
+                            class="px-6 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors">
+                        <i class="fas fa-times mr-2"></i>ยกเลิก
+                    </button>
+                    <button type="submit" id="submitBtn"
+                            class="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors">
+                        <i class="fas fa-save mr-2"></i>บันทึก
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Report Modal -->
+    <div id="reportModal" class="modal">
+        <div class="modal-content w-full max-w-4xl">
+            <div class="bg-gradient-to-r from-purple-600 to-purple-800 text-white px-6 py-4 rounded-t-lg">
+                <div class="flex items-center justify-between">
+                    <h3 class="text-xl font-semibold">รายงานสรุป</h3>
+                    <button onclick="closeReportModal()" class="text-white hover:text-gray-200 text-2xl">
+                        <i class="fas fa-times"></i>
+                    </button>
+                </div>
+            </div>
+            <div id="reportContent" class="p-6">
+                <!-- Report content will be generated here -->
+            </div>
+        </div>
+    </div>
+
+    <!-- Delete Confirmation Modal -->
+    <div id="deleteModal" class="modal">
+        <div class="modal-content w-full max-w-md">
+            <div class="p-6">
+                <div class="flex items-center justify-center w-12 h-12 mx-auto mb-4 bg-red-100 rounded-full">
+                    <i class="fas fa-exclamation-triangle text-red-600 text-xl"></i>
+                </div>
+                <h3 class="text-lg font-semibold text-center mb-2">ยืนยันการลบ</h3>
+                <p class="text-gray-600 text-center mb-6">คุณแน่ใจหรือไม่ที่จะลบรายการนี้? การดำเนินการนี้ไม่สามารถย้อนกลับได้</p>
+                <div class="flex justify-center space-x-4">
+                    <button onclick="closeDeleteModal()" 
+                            class="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors">
+                        ยกเลิก
+                    </button>
+                    <button onclick="confirmDelete()" 
+                            class="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg transition-colors">
+                        <i class="fas fa-trash mr-2"></i>ลบ
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Global variables
+        let allData = [];
+        let currentEditItem = null;
+        let deleteItemCode = null;
+        let deleteItemCategory = null;
+        
+        // Subcategory mappings
+        const subcategories = {
+            'ครุภัณฑ์': [
+                'ครุภัณฑ์คอมพิวเตอร์', 'ครุภัณฑ์สำนักงาน', 'ครุภัณฑ์ยานพาหนะ', 
+                'ครุภัณฑ์โฆษณาและเผยแพร่', 'ครุภัณฑ์วิทยาศาสตร์', 'ครุภัณฑ์การแพทย์',
+                'ครุภัณฑ์งานบ้านงานครัว', 'ครุภัณฑ์ก่อสร้าง', 'ครุภัณฑ์ไฟฟ้าและวิทยุ'
+            ],
+            'วัสดุคงทน': [
+                'เครื่องใช้สำนักงาน', 'เฟอร์นิเจอร์และตกแต่ง', 'เครื่องมือและอุปกรณ์',
+                'วัสดุโฆษณาและเผยแพร่', 'วัสดุคอมพิวเตอร์', 'วัสดุไฟฟ้าและวิทยุ'
+            ],
+            'วัสดุสิ้นเปลือง': [
+                'วัสดุสำนักงาน', 'วัสดุงานบ้านงานครัว', 'วัสดุก่อสร้าง',
+                'วัสดุยานพาหนะ', 'วัสดุเชื้อเพลิงและหล่อลื่น', 'วัสดุการแพทย์'
+            ]
+        };
+
+        // Depreciation rates by category (% per year)
+        const depreciationRates = {
+            'ครุภัณฑ์คอมพิวเตอร์': 20,
+            'ครุภัณฑ์สำนักงาน': 10,
+            'ครุภัณฑ์ยานพาหนะ': 20,
+            'ครุภัณฑ์โฆษณาและเผยแพร่': 10,
+            'ครุภัณฑ์วิทยาศาสตร์': 10,
+            'ครุภัณฑ์การแพทย์': 10,
+            'ครุภัณฑ์งานบ้านงานครัว': 10,
+            'ครุภัณฑ์ก่อสร้าง': 10,
+            'ครุภัณฑ์ไฟฟ้าและวิทยุ': 10,
+            'เครื่องใช้สำนักงาน': 10,
+            'เฟอร์นิเจอร์และตกแต่ง': 5,
+            'เครื่องมือและอุปกรณ์': 10,
+            'วัสดุโฆษณาและเผยแพร่': 10,
+            'วัสดุคอมพิวเตอร์': 20,
+            'วัสดุไฟฟ้าและวิทยุ': 10
+        };
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', function() {
+            loadData();
+            setupEventListeners();
+            updatePrintDate();
+        });
+
+        function setupEventListeners() {
+            // Form submission
+            document.getElementById('itemForm').addEventListener('submit', handleFormSubmit);
+            
+            // Search on Enter key
+            ['searchCode', 'searchName', 'searchDepartment'].forEach(id => {
+                document.getElementById(id).addEventListener('keypress', function(e) {
+                    if (e.key === 'Enter') searchData();
+                });
+            });
+            
+            // Filter changes
+            ['filterCategory', 'filterStatus', 'priceMin', 'priceMax'].forEach(id => {
+                document.getElementById(id).addEventListener('change', searchData);
+            });
+            
+            // Modal close on outside click
+            document.getElementById('itemModal').addEventListener('click', function(e) {
+                if (e.target === this) closeModal();
+            });
+            document.getElementById('deleteModal').addEventListener('click', function(e) {
+                if (e.target === this) closeDeleteModal();
+            });
+            document.getElementById('reportModal').addEventListener('click', function(e) {
+                if (e.target === this) closeReportModal();
+            });
+            
+            // Category change handler
+            document.getElementById('itemCategory').addEventListener('change', function() {
+                updateSubcategories();
+                updateDepreciationRate();
+            });
+        }
+
+        function updatePrintDate() {
+            const now = new Date();
+            const buddhistYear = now.getFullYear() + 543;
+            const dateStr = `${now.getDate().toString().padStart(2, '0')}/${(now.getMonth() + 1).toString().padStart(2, '0')}/${buddhistYear}`;
+            document.getElementById('printDate').textContent = dateStr;
+        }
+
+        function updateSubcategories() {
+            const category = document.getElementById('itemCategory').value;
+            const subcategorySelect = document.getElementById('itemSubcategory');
+            
+            subcategorySelect.innerHTML = '<option value="">เลือกหมวดหมู่ย่อย</option>';
+            
+            if (category && subcategories[category]) {
+                subcategories[category].forEach(sub => {
+                    const option = document.createElement('option');
+                    option.value = sub;
+                    option.textContent = sub;
+                    subcategorySelect.appendChild(option);
+                });
+            }
+        }
+
+        function updateDepreciationRate() {
+            const subcategory = document.getElementById('itemSubcategory').value;
+            const depreciationRateInput = document.getElementById('itemDepreciationRate');
+            const usefulLifeInput = document.getElementById('itemUsefulLife');
+            
+            if (subcategory && depreciationRates[subcategory]) {
+                const rate = depreciationRates[subcategory];
+                depreciationRateInput.value = rate;
+                usefulLifeInput.value = Math.ceil(100 / rate);
+                calculateDepreciation();
+            }
+        }
+
+        function calculateTotal() {
+            const price = parseFloat(document.getElementById('itemPrice').value) || 0;
+            const quantity = parseInt(document.getElementById('itemQuantity').value) || 0;
+            const total = price * quantity;
+            document.getElementById('itemTotal').value = total.toFixed(2);
+            calculateDepreciation();
+        }
+
+        function calculateDepreciation() {
+            const total = parseFloat(document.getElementById('itemTotal').value) || 0;
+            const depreciationRate = parseFloat(document.getElementById('itemDepreciationRate').value) || 0;
+            const purchaseDate = document.getElementById('itemPurchaseDate').value;
+            
+            if (total > 0 && depreciationRate > 0 && purchaseDate) {
+                const purchaseDateObj = new Date(purchaseDate);
+                const currentDate = new Date();
+                const yearsUsed = (currentDate - purchaseDateObj) / (365.25 * 24 * 60 * 60 * 1000);
+                
+                if (yearsUsed > 0) {
+                    const accumulatedDepreciation = Math.min(total * (depreciationRate / 100) * yearsUsed, total);
+                    document.getElementById('itemAccumulatedDepreciation').value = accumulatedDepreciation.toFixed(2);
+                } else {
+                    document.getElementById('itemAccumulatedDepreciation').value = '0.00';
+                }
+            }
+        }
+
+        function calculateWarrantyExpiry() {
+            const purchaseDate = document.getElementById('itemPurchaseDate').value;
+            const warrantyPeriod = parseInt(document.getElementById('itemWarrantyPeriod').value) || 0;
+            
+            if (purchaseDate && warrantyPeriod > 0) {
+                const purchaseDateObj = new Date(purchaseDate);
+                const expiryDate = new Date(purchaseDateObj);
+                expiryDate.setMonth(expiryDate.getMonth() + warrantyPeriod);
+                
+                document.getElementById('itemWarrantyExpiry').value = expiryDate.toISOString().split('T')[0];
+            }
+        }
+
+        // ฟังก์ชันแปลงวันที่เป็น พศ.
+        function convertToBuddhistEra(dateString) {
+            if (!dateString) return '-';
+            try {
+                const date = new Date(dateString);
+                if (isNaN(date.getTime())) return '-';
+                
+                const buddhistYear = date.getFullYear() + 543;
+                const month = String(date.getMonth() + 1).padStart(2, '0');
+                const day = String(date.getDate()).padStart(2, '0');
+                return `${day}/${month}/${buddhistYear}`;
+            } catch (error) {
+                return '-';
+            }
+        }
+
+        function calculateAge(purchaseDate) {
+            if (!purchaseDate) return '-';
+            try {
+                const purchase = new Date(purchaseDate);
+                const now = new Date();
+                const diffTime = Math.abs(now - purchase);
+                const diffYears = Math.floor(diffTime / (1000 * 60 * 60 * 24 * 365.25));
+                const diffMonths = Math.floor((diffTime % (1000 * 60 * 60 * 24 * 365.25)) / (1000 * 60 * 60 * 24 * 30.44));
+                
+                if (diffYears > 0) {
+                    return `${diffYears} ปี ${diffMonths} เดือน`;
+                } else {
+                    return `${diffMonths} เดือน`;
+                }
+            } catch (error) {
+                return '-';
+            }
+        }
+
+        function calculateCurrentDepreciation(item) {
+            if (!item.total || !item.depreciationRate || !item.purchaseDate) return 0;
+            
+            const purchaseDate = new Date(item.purchaseDate);
+            const currentDate = new Date();
+            const yearsUsed = (currentDate - purchaseDate) / (365.25 * 24 * 60 * 60 * 1000);
+            
+            if (yearsUsed > 0) {
+                return Math.min(item.total * (item.depreciationRate / 100) * yearsUsed, item.total);
+            }
+            return 0;
+        }
+
+        // Load all data
+        async function loadData() {
+            showLoading(true);
+            try {
+                // Enhanced sample data with all new fields
+                const sampleData = [
+                    {
+                        code: 'EQ001',
+                        name: 'คอมพิวเตร์ตั้งโต๊ะ Dell OptiPlex 7090',
+                        category: 'ครุภัณฑ์',
+                        subcategory: 'ครุภัณฑ์คอมพิวเตอร์',
+                        brand: 'Dell OptiPlex 7090',
+                        serial: 'DL7090001',
+                        price: 25000,
+                        quantity: 5,
+                        total: 125000,
+                        purchaseDate: '2024-01-15',
+                        receiveDate: '2024-01-20',
+                        budget: 'งบประมาณแผ่นดิน',
+                        purchaseOrder: 'PO-2024-001',
+                        supplier: 'บริษัท เดลล์ (ประเทศไทย) จำกัด',
+                        department: 'งานเทคโนโลยี',
+                        location: 'ห้องคอมพิวเตอร์ ชั้น 2',
+                        responsible: 'นายสมชาย เทคโนโลยี',
+                        status: 'ใช้งานได้',
+                        warrantyPeriod: 36,
+                        warrantyExpiry: '2027-01-15',
+                        depreciationRate: 20,
+                        usefulLife: 5,
+                        accumulatedDepreciation: 25000,
+                        recorder: 'นายสมชาย ใจดี',
+                        notes: 'คอมพิวเตร์สำหรับงานสำนักงาน พร้อม Monitor'
+                    },
+                    {
+                        code: 'EQ002',
+                        name: 'เครื่องพิมพ์เลเซอร์ HP LaserJet Pro M404dn',
+                        category: 'ครุภัณฑ์',
+                        subcategory: 'ครุภัณฑ์สำนักงาน',
+                        brand: 'HP LaserJet Pro M404dn',
+                        serial: 'HP404001',
+                        price: 8500,
+                        quantity: 3,
+                        total: 25500,
+                        purchaseDate: '2024-01-20',
+                        receiveDate: '2024-01-25',
+                        budget: 'งบประมาณแผ่นดิน',
+                        purchaseOrder: 'PO-2024-002',
+                        supplier: 'บริษัท เอชพี (ประเทศไทย) จำกัด',
+                        department: 'งานสำนักงาน',
+                        location: 'ห้องเอกสาร ชั้น 1',
+                        responsible: 'นางสาวมาลี เอกสาร',
+                        status: 'ใช้งานได้',
+                        warrantyPeriod: 12,
+                        warrantyExpiry: '2025-01-20',
+                        depreciationRate: 10,
+                        usefulLife: 10,
+                        accumulatedDepreciation: 2550,
+                        recorder: 'นางสาวมาลี สวยงาม',
+                        notes: 'เครื่องพิมพ์สำหรับงานเอกสาร'
+                    },
+                    {
+                        code: 'MT001',
+                        name: 'โต๊ะทำงานไม้สัก ขนาด 120x60 ซม.',
+                        category: 'วัสดุคงทน',
+                        subcategory: 'เฟอร์นิเจอร์และตกแต่ง',
+                        brand: 'โรงงานเฟอร์นิเจอร์ไทย',
+                        serial: 'TBL120001',
+                        price: 3500,
+                        quantity: 10,
+                        total: 35000,
+                        purchaseDate: '2024-02-01',
+                        receiveDate: '2024-02-05',
+                        budget: 'งบประมาณเงินรายได้',
+                        purchaseOrder: 'PO-2024-003',
+                        supplier: 'ห้างหุ้นส่วนจำกัด เฟอร์นิเจอร์ไทย',
+                        department: 'งานอำนวยการ',
+                        location: 'ห้องทำงาน ชั้น 1-3',
+                        responsible: 'นายประชา อำนวยการ',
+                        status: 'ใช้งานได้',
+                        warrantyPeriod: 12,
+                        warrantyExpiry: '2025-02-01',
+                        depreciationRate: 5,
+                        usefulLife: 20,
+                        accumulatedDepreciation: 1458,
+                        recorder: 'นายประชา รักงาน',
+                        notes: 'โต๊ะทำงานสำหรับพนักงาน'
+                    },
+                    {
+                        code: 'EQ003',
+                        name: 'เครื่องปรับอากาศ Daikin 18000 BTU',
+                        category: 'ครุภัณฑ์',
+                        subcategory: 'ครุภัณฑ์งานบ้านงานครัว',
+                        brand: 'Daikin FTKC18TV2S',
+                        serial: 'DK18001',
+                        price: 22000,
+                        quantity: 8,
+                        total: 176000,
+                        purchaseDate: '2023-03-15',
+                        receiveDate: '2023-03-20',
+                        budget: 'งบประมาณแผ่นดิน',
+                        purchaseOrder: 'PO-2023-015',
+                        supplier: 'บริษัท ไดกิ้น (ประเทศไทย) จำกัด',
+                        department: 'งานอำนวยการ',
+                        location: 'ห้องประชุม และห้องทำงาน',
+                        responsible: 'นายสมศักดิ์ ช่างแอร์',
+                        status: 'ใช้งานได้',
+                        warrantyPeriod: 60,
+                        warrantyExpiry: '2028-03-15',
+                        depreciationRate: 10,
+                        usefulLife: 10,
+                        accumulatedDepreciation: 29333,
+                        recorder: 'นายสมศักดิ์ ซ่อมบำรุง',
+                        notes: 'เครื่องปรับอากาศประหยัดพลังงาน เบอร์ 5'
+                    }
+                ];
+                
+                allData = sampleData;
+                displayData(allData);
+                updateStatistics(allData);
+                checkAlerts(allData);
+                showMessage('โหลดข้อมูลสำเร็จ', 'success');
+            } catch (error) {
+                console.error('Error loading data:', error);
+                showMessage('เกิดข้อผิดพลาดในการโหลดข้อมูล: ' + error.message, 'error');
+            } finally {
+                showLoading(false);
+            }
+        }
+
+        // Enhanced search function
+        function searchData() {
+            const searchCode = document.getElementById('searchCode').value.trim().toLowerCase();
+            const searchName = document.getElementById('searchName').value.trim().toLowerCase();
+            const searchDepartment = document.getElementById('searchDepartment').value.trim().toLowerCase();
+            const filterCategory = document.getElementById('filterCategory').value;
+            const filterStatus = document.getElementById('filterStatus').value;
+            const priceMin = parseFloat(document.getElementById('priceMin').value) || 0;
+            const priceMax = parseFloat(document.getElementById('priceMax').value) || Infinity;
+            
+            const filteredData = allData.filter(item => {
+                const codeMatch = !searchCode || item.code.toLowerCase().includes(searchCode);
+                const nameMatch = !searchName || item.name.toLowerCase().includes(searchName);
+                const departmentMatch = !searchDepartment || (item.department && item.department.toLowerCase().includes(searchDepartment));
+                const categoryMatch = !filterCategory || item.category === filterCategory;
+                const statusMatch = !filterStatus || item.status === filterStatus;
+                const priceMatch = item.price >= priceMin && item.price <= priceMax;
+                
+                return codeMatch && nameMatch && departmentMatch && categoryMatch && statusMatch && priceMatch;
+            });
+            
+            displayData(filteredData);
+            updateStatistics(filteredData);
+            showMessage(`พบข้อมูล ${filteredData.length} รายการ`, 'success');
+        }
+
+        function clearSearch() {
+            document.getElementById('searchCode').value = '';
+            document.getElementById('searchName').value = '';
+            document.getElementById('searchDepartment').value = '';
+            document.getElementById('filterCategory').value = '';
+            document.getElementById('filterStatus').value = '';
+            document.getElementById('priceMin').value = '';
+            document.getElementById('priceMax').value = '';
+            
+            displayData(allData);
+            updateStatistics(allData);
+            showMessage('ล้างการค้นหาแล้ว', 'success');
+        }
+
+        // Check for alerts (warranty expiry, maintenance due, etc.)
+        function checkAlerts(data) {
+            const alertsSection = document.getElementById('alertsSection');
+            const alerts = [];
+            const currentDate = new Date();
+            
+            data.forEach(item => {
+                // Check warranty expiry
+                if (item.warrantyExpiry) {
+                    const warrantyDate = new Date(item.warrantyExpiry);
+                    const daysUntilExpiry = Math.ceil((warrantyDate - currentDate) / (1000 * 60 * 60 * 24));
+                    
+                    if (daysUntilExpiry < 0) {
+                        alerts.push({
+                            type: 'warranty-expired',
+                            icon: 'fas fa-exclamation-triangle',
+                            title: 'ประกันหมดอายุแล้ว',
+                            message: `${item.name} (${item.code}) หมดประกันเมื่อ ${convertToBuddhistEra(item.warrantyExpiry)}`,
+                            class: 'warranty-expired'
+                        });
+                    } else if (daysUntilExpiry <= 30) {
+                        alerts.push({
+                            type: 'warranty-expiring',
+                            icon: 'fas fa-exclamation-circle',
+                            title: 'ประกันใกล้หมดอายุ',
+                            message: `${item.name} (${item.code}) จะหมดประกันในอีก ${daysUntilExpiry} วัน`,
+                            class: 'warranty-expiring'
+                        });
+                    }
+                }
+                
+                // Check for items needing maintenance (over 2 years old)
+                if (item.purchaseDate) {
+                    const purchaseDate = new Date(item.purchaseDate);
+                    const yearsOld = (currentDate - purchaseDate) / (365.25 * 24 * 60 * 60 * 1000);
+                    
+                    if (yearsOld >= 2 && item.status === 'ใช้งานได้') {
+                        alerts.push({
+                            type: 'maintenance-due',
+                            icon: 'fas fa-tools',
+                            title: 'ควรตรวจสอบการบำรุงรักษา',
+                            message: `${item.name} (${item.code}) ใช้งานมาแล้ว ${Math.floor(yearsOld)} ปี`,
+                            class: 'depreciation-info'
+                        });
+                    }
+                }
+            });
+            
+            if (alerts.length > 0) {
+                alertsSection.innerHTML = alerts.map(alert => `
+                    <div class="p-4 rounded-lg ${alert.class}">
+                        <div class="flex items-center">
+                            <i class="${alert.icon} text-lg mr-3"></i>
+                            <div>
+                                <h4 class="font-semibold">${alert.title}</h4>
+                                <p class="text-sm">${alert.message}</p>
+                            </div>
+                        </div>
+                    </div>
+                `).join('');
+            } else {
+                alertsSection.innerHTML = '';
+            }
+        }
+
+        // Enhanced display function
+        function displayData(data) {
+            const tableBody = document.getElementById('dataTable');
+            
+            if (data.length === 0) {
+                tableBody.innerHTML = `
+                    <tr>
+                        <td colspan="13" class="px-6 py-8 text-center text-gray-500">
+                            <i class="fas fa-inbox text-4xl mb-4 block"></i>
+                            ไม่พบข้อมูล
+                        </td>
+                    </tr>
+                `;
+                return;
+            }
+            
+            tableBody.innerHTML = data.map(item => {
+                const currentDepreciation = calculateCurrentDepreciation(item);
+                const currentValue = (item.total || 0) - currentDepreciation;
+                
+                return `
+                    <tr class="hover:bg-gray-50 transition-colors">
+                        <td class="px-4 py-4 whitespace-nowrap text-sm font-medium text-gray-900">${item.code}</td>
+                        <td class="px-4 py-4 text-sm text-gray-900">
+                            <div class="font-medium">${item.name}</div>
+                            <div class="text-xs text-gray-500">${item.brand || ''}</div>
+                        </td>
+                        <td class="px-4 py-4 whitespace-nowrap text-sm text-gray-500">
+                            <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getCategoryClass(item.category)}">
+                                ${item.category}
+                            </span>
+                            <div class="text-xs text-gray-400 mt-1">${item.subcategory || ''}</div>
+                        </td>
+                        <td class="px-4 py-4 whitespace-nowrap text-sm text-gray-900">${formatCurrency(item.price)}</td>
+                        <td class="px-4 py-4 whitespace-nowrap text-sm text-gray-900 text-center">${item.quantity}</td>
+                        <td class="px-4 py-4 whitespace-nowrap text-sm text-gray-900">
+                            <div class="font-medium">${formatCurrency(item.total)}</div>
+                            <div class="text-xs text-gray-500">ปัจจุบัน: ${formatCurrency(currentValue)}</div>
+                        </td>
+                        <td class="px-4 py-4 whitespace-nowrap text-sm">
+                            <span class="status-badge ${getStatusClass(item.status)}">
+                                ${item.status || 'ไม่ระบุ'}
+                            </span>
+                        </td>
+                        <td class="px-4 py-4 text-sm text-gray-900">
+                            <div class="font-medium">${item.department || '-'}</div>
+                            <div class="text-xs text-gray-500">${item.location || ''}</div>
+                        </td>
+                        <td class="px-4 py-4 text-sm text-gray-900">${convertToBuddhistEra(item.purchaseDate)}</td>
+                        <td class="px-4 py-4 text-sm text-gray-900">${calculateAge(item.purchaseDate)}</td>
+                        <td class="px-4 py-4 text-sm text-gray-900">
+                            <div class="font-medium">${formatCurrency(currentDepreciation)}</div>
+                            <div class="text-xs text-gray-500">${item.depreciationRate || 0}%/ปี</div>
+                        </td>
+                        <td class="px-4 py-4 text-sm text-gray-900">
+                            <div class="font-medium">${item.recorder || '-'}</div>
+                            <div class="text-xs text-gray-500">${item.responsible || ''}</div>
+                        </td>
+                        <td class="px-4 py-4 whitespace-nowrap text-center no-print">
+                            <div class="action-buttons flex justify-center space-x-2">
+                                <button onclick="editItem('${item.code}', '${item.category}')" 
+                                        class="text-blue-600 hover:text-blue-800 transition-colors" title="แก้ไข">
+                                    <i class="fas fa-edit"></i>
+                                </button>
+                                <button onclick="deleteItem('${item.code}', '${item.category}')" 
+                                        class="text-red-600 hover:text-red-800 transition-colors" title="ลบ">
+                                    <i class="fas fa-trash"></i>
+                                </button>
+                                <button onclick="viewDetails('${item.code}', '${item.category}')" 
+                                        class="text-green-600 hover:text-green-800 transition-colors" title="รายละเอียด">
+                                    <i class="fas fa-eye"></i>
+                                </button>
+                            </div>
+                        </td>
+                    </tr>
+                `;
+            }).join('');
+        }
+
+        // Enhanced statistics
+        function updateStatistics(data) {
+            const stats = {
+                equipment: data.filter(item => item.category === 'ครุภัณฑ์').length,
+                durable: data.filter(item => item.category === 'วัสดุคงทน').length,
+                consumable: data.filter(item => item.category === 'วัสดุสิ้นเปลือง').length,
+                totalValue: data.reduce((sum, item) => sum + (item.total || 0), 0),
+                totalDepreciation: data.reduce((sum, item) => sum + calculateCurrentDepreciation(item), 0)
+            };
+            
+            document.getElementById('totalEquipment').textContent = stats.equipment.toLocaleString();
+            document.getElementById('totalDurable').textContent = stats.durable.toLocaleString();
+            document.getElementById('totalConsumable').textContent = stats.consumable.toLocaleString();
+            document.getElementById('totalValue').textContent = formatCurrency(stats.totalValue);
+            document.getElementById('totalDepreciation').textContent = formatCurrency(stats.totalDepreciation);
+        }
+
+        // Generate comprehensive report
+        function generateReport() {
+            const reportContent = document.getElementById('reportContent');
+            const currentDate = new Date();
+            const buddhistYear = currentDate.getFullYear() + 543;
+            
+            // Calculate comprehensive statistics
+            const totalItems = allData.length;
+            const totalValue = allData.reduce((sum, item) => sum + (item.total || 0), 0);
+            const totalDepreciation = allData.reduce((sum, item) => sum + calculateCurrentDepreciation(item), 0);
+            const currentValue = totalValue - totalDepreciation;
+            
+            const categoryStats = {
+                'ครุภัณฑ์': allData.filter(item => item.category === 'ครุภัณฑ์'),
+                'วัสดุคงทน': allData.filter(item => item.category === 'วัสดุคงทน'),
+                'วัสดุสิ้นเปลือง': allData.filter(item => item.category === 'วัสดุสิ้นเปลือง')
+            };
+            
+            const statusStats = {
+                'ใช้งานได้': allData.filter(item => item.status === 'ใช้งานได้').length,
+                'ซ่อมแซม': allData.filter(item => item.status === 'ซ่อมแซม').length,
+                'ชำรุด': allData.filter(item => item.status === 'ชำรุด').length,
+                'จำหน่าย': allData.filter(item => item.status === 'จำหน่าย').length,
+                'สำรอง': allData.filter(item => item.status === 'สำรอง').length
+            };
+            
+            const departmentStats = {};
+            allData.forEach(item => {
+                if (item.department) {
+                    if (!departmentStats[item.department]) {
+                        departmentStats[item.department] = { count: 0, value: 0 };
+                    }
+                    departmentStats[item.department].count++;
+                    departmentStats[item.department].value += item.total || 0;
+                }
+            });
+            
+            reportContent.innerHTML = `
+                <div class="space-y-6">
+                    <div class="text-center border-b pb-4">
+                        <h2 class="text-2xl font-bold text-gray-800">รายงานสรุปครุภัณฑ์และพัสดุ</h2>
+                        <p class="text-gray-600">ณ วันที่ ${currentDate.getDate().toString().padStart(2, '0')}/${(currentDate.getMonth() + 1).toString().padStart(2, '0')}/${buddhistYear}</p>
+                    </div>
+                    
+                    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                        <div class="bg-blue-50 p-4 rounded-lg">
+                            <h3 class="font-semibold text-blue-800">จำนวนรายการทั้งหมด</h3>
+                            <p class="text-2xl font-bold text-blue-600">${totalItems.toLocaleString()} รายการ</p>
+                        </div>
+                        <div class="bg-green-50 p-4 rounded-lg">
+                            <h3 class="font-semibold text-green-800">มูลค่าทั้งหมด</h3>
+                            <p class="text-2xl font-bold text-green-600">${formatCurrency(totalValue)}</p>
+                        </div>
+                        <div class="bg-red-50 p-4 rounded-lg">
+                            <h3 class="font-semibold text-red-800">ค่าเสื่อมราคาสะสม</h3>
+                            <p class="text-2xl font-bold text-red-600">${formatCurrency(totalDepreciation)}</p>
+                        </div>
+                        <div class="bg-purple-50 p-4 rounded-lg">
+                            <h3 class="font-semibold text-purple-800">มูลค่าปัจจุบัน</h3>
+                            <p class="text-2xl font-bold text-purple-600">${formatCurrency(currentValue)}</p>
+                        </div>
+                    </div>
+                    
+                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                        <div class="bg-white border rounded-lg p-4">
+                            <h3 class="font-semibold text-gray-800 mb-4">สรุปตามประเภท</h3>
+                            <div class="space-y-3">
+                                ${Object.entries(categoryStats).map(([category, items]) => `
+                                    <div class="flex justify-between items-center">
+                                        <span>${category}</span>
+                                        <div class="text-right">
+                                            <div class="font-semibold">${items.length} รายการ</div>
+                                            <div class="text-sm text-gray-600">${formatCurrency(items.reduce((sum, item) => sum + (item.total || 0), 0))}</div>
+                                        </div>
+                                    </div>
+                                `).join('')}
+                            </div>
+                        </div>
+                        
+                        <div class="bg-white border rounded-lg p-4">
+                            <h3 class="font-semibold text-gray-800 mb-4">สรุปตามสถานะ</h3>
+                            <div class="space-y-3">
+                                ${Object.entries(statusStats).map(([status, count]) => `
+                                    <div class="flex justify-between items-center">
+                                        <span>${status}</span>
+                                        <span class="font-semibold">${count} รายการ</span>
+                                    </div>
+                                `).join('')}
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="bg-white border rounded-lg p-4">
+                        <h3 class="font-semibold text-gray-800 mb-4">สรุปตามหน่วยงาน</h3>
+                        <div class="overflow-x-auto">
+                            <table class="min-w-full divide-y divide-gray-200">
+                                <thead class="bg-gray-50">
+                                    <tr>
+                                        <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">หน่วยงาน</th>
+                                        <th class="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase">จำนวน</th>
+                                        <th class="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase">มูลค่า</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="divide-y divide-gray-200">
+                                    ${Object.entries(departmentStats).map(([dept, stats]) => `
+                                        <tr>
+                                            <td class="px-4 py-2 text-sm text-gray-900">${dept}</td>
+                                            <td class="px-4 py-2 text-sm text-gray-900 text-right">${stats.count} รายการ</td>
+                                            <td class="px-4 py-2 text-sm text-gray-900 text-right">${formatCurrency(stats.value)}</td>
+                                        </tr>
+                                    `).join('')}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                    
+                    <div class="text-center pt-4 border-t">
+                        <button onclick="window.print()" class="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg mr-4">
+                            <i class="fas fa-print mr-2"></i>พิมพ์รายงาน
+                        </button>
+                        <button onclick="exportToCSV()" class="bg-green-600 hover:bg-green-700 text-white px-6 py-2 rounded-lg">
+                            <i class="fas fa-file-csv mr-2"></i>ส่งออก CSV
+                        </button>
+                    </div>
+                </div>
+            `;
+            
+            document.getElementById('reportModal').classList.add('show');
+        }
+
+        function closeReportModal() {
+            document.getElementById('reportModal').classList.remove('show');
+        }
+
+        // Export functions
+        function exportData() {
+            exportToCSV();
+        }
+
+        function exportToCSV() {
+            const headers = [
+                'รหัส', 'ชื่อรายการ', 'ประเภท', 'หมวดหมู่ย่อย', 'ยี่ห้อ/รุ่น', 'หมายเลขซีเรียล',
+                'ราคาต่อหน่วย', 'จำนวน', 'มูลค่ารวม', 'วันที่จัดซื้อ', 'วันที่รับของ',
+                'แหล่งเงิน', 'เลขที่ใบสั่งซื้อ', 'ผู้จำหน่าย', 'หน่วยงาน', 'สถานที่ตั้ง',
+                'ผู้รับผิดชอบ', 'สถานะ', 'ระยะเวลาประกัน', 'วันหมดประกัน',
+                'อัตราค่าเสื่อมราคา', 'อายุการใช้งาน', 'ค่าเสื่อมราคาสะสม', 'ผู้บันทึก', 'หมายเหตุ'
+            ];
+            
+            const csvContent = [
+                headers.join(','),
+                ...allData.map(item => [
+                    item.code || '',
+                    `"${item.name || ''}"`,
+                    item.category || '',
+                    item.subcategory || '',
+                    `"${item.brand || ''}"`,
+                    item.serial || '',
+                    item.price || 0,
+                    item.quantity || 0,
+                    item.total || 0,
+                    convertToBuddhistEra(item.purchaseDate),
+                    convertToBuddhistEra(item.receiveDate),
+                    item.budget || '',
+                    item.purchaseOrder || '',
+                    `"${item.supplier || ''}"`,
+                    item.department || '',
+                    `"${item.location || ''}"`,
+                    `"${item.responsible || ''}"`,
+                    item.status || '',
+                    item.warrantyPeriod || '',
+                    convertToBuddhistEra(item.warrantyExpiry),
+                    item.depreciationRate || '',
+                    item.usefulLife || '',
+                    calculateCurrentDepreciation(item).toFixed(2),
+                    `"${item.recorder || ''}"`,
+                    `"${item.notes || ''}"`
+                ].join(','))
+            ].join('\n');
+            
+            const blob = new Blob(['\ufeff' + csvContent], { type: 'text/csv;charset=utf-8;' });
+            const link = document.createElement('a');
+            const url = URL.createObjectURL(blob);
+            link.setAttribute('href', url);
+            link.setAttribute('download', `ครุภัณฑ์และพัสดุ_${new Date().toISOString().split('T')[0]}.csv`);
+            link.style.visibility = 'hidden';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            
+            showMessage('ส่งออกข้อมูลเป็น CSV สำเร็จ', 'success');
+        }
+
+        // Enhanced form handling
+        function openAddModal() {
+            currentEditItem = null;
+            document.getElementById('modalTitle').textContent = 'เพิ่มรายการใหม่';
+            document.getElementById('submitBtn').innerHTML = '<i class="fas fa-save mr-2"></i>บันทึก';
+            document.getElementById('itemForm').reset();
+            updateSubcategories();
+            document.getElementById('itemModal').classList.add('show');
+        }
+
+        function editItem(code, category) {
+            const item = allData.find(item => item.code === code && item.category === category);
+            
+            if (!item) {
+                showMessage('ไม่พบข้อมูลรายการนี้', 'error');
+                return;
+            }
+            
+            currentEditItem = { originalCode: code, originalCategory: category };
+            document.getElementById('modalTitle').textContent = 'แก้ไขรายการ';
+            document.getElementById('submitBtn').innerHTML = '<i class="fas fa-save mr-2"></i>อัปเดท';
+            
+            // Fill all form fields
+            Object.keys(item).forEach(key => {
+                const element = document.getElementById(`item${key.charAt(0).toUpperCase() + key.slice(1)}`);
+                if (element) {
+                    if (key === 'purchaseDate' || key === 'receiveDate') {
+                        element.value = item[key] || '';
+                    } else {
+                        element.value = item[key] || '';
+                    }
+                }
+            });
+            
+            updateSubcategories();
+            setTimeout(() => {
+                if (item.subcategory) {
+                    document.getElementById('itemSubcategory').value = item.subcategory;
+                }
+            }, 100);
+            
+            document.getElementById('itemModal').classList.add('show');
+        }
+
+        function viewDetails(code, category) {
+            const item = allData.find(item => item.code === code && item.category === category);
+            if (!item) return;
+            
+            const currentDepreciation = calculateCurrentDepreciation(item);
+            const currentValue = (item.total || 0) - currentDepreciation;
+            
+            const detailsHTML = `
+                <div class="bg-white p-6 rounded-lg max-w-2xl mx-auto">
+                    <h3 class="text-xl font-bold mb-4">${item.name}</h3>
+                    <div class="grid grid-cols-2 gap-4 text-sm">
+                        <div><strong>รหัส:</strong> ${item.code}</div>
+                        <div><strong>ประเภท:</strong> ${item.category}</div>
+                        <div><strong>ยี่ห้อ/รุ่น:</strong> ${item.brand || '-'}</div>
+                        <div><strong>หมายเลขซีเรียล:</strong> ${item.serial || '-'}</div>
+                        <div><strong>ราคา:</strong> ${formatCurrency(item.price)}</div>
+                        <div><strong>จำนวน:</strong> ${item.quantity}</div>
+                        <div><strong>มูลค่ารวม:</strong> ${formatCurrency(item.total)}</div>
+                        <div><strong>มูลค่าปัจจุบัน:</strong> ${formatCurrency(currentValue)}</div>
+                        <div><strong>วันที่จัดซื้อ:</strong> ${convertToBuddhistEra(item.purchaseDate)}</div>
+                        <div><strong>หน่วยงาน:</strong> ${item.department || '-'}</div>
+                        <div><strong>สถานที่:</strong> ${item.location || '-'}</div>
+                        <div><strong>ผู้รับผิดชอบ:</strong> ${item.responsible || '-'}</div>
+                        <div><strong>สถานะ:</strong> ${item.status || '-'}</div>
+                        <div><strong>ประกันหมดอายุ:</strong> ${convertToBuddhistEra(item.warrantyExpiry)}</div>
+                    </div>
+                    ${item.notes ? `<div class="mt-4"><strong>หมายเหตุ:</strong> ${item.notes}</div>` : ''}
+                </div>
+            `;
+            
+            // Create temporary modal for details
+            const modal = document.createElement('div');
+            modal.className = 'modal show';
+            modal.innerHTML = `
+                <div class="modal-content">
+                    ${detailsHTML}
+                    <div class="text-center mt-4">
+                        <button onclick="this.closest('.modal').remove()" class="bg-gray-500 hover:bg-gray-600 text-white px-4 py-2 rounded-lg">
+                            ปิด
+                        </button>
+                    </div>
+                </div>
+            `;
+            document.body.appendChild(modal);
+        }
+
+        function deleteItem(code, category) {
+            deleteItemCode = code;
+            deleteItemCategory = category;
+            document.getElementById('deleteModal').classList.add('show');
+        }
+
+        function confirmDelete() {
+            if (!deleteItemCode || !deleteItemCategory) return;
+            
+            allData = allData.filter(item => !(item.code === deleteItemCode && item.category === deleteItemCategory));
+            
+            showMessage('ลบข้อมูลสำเร็จ', 'success');
+            closeDeleteModal();
+            displayData(allData);
+            updateStatistics(allData);
+            checkAlerts(allData);
+        }
+
+        function handleFormSubmit(e) {
+            e.preventDefault();
+            
+            const formData = new FormData(e.target);
+            const itemData = {};
+            
+            // Collect all form data
+            for (let [key, value] of formData.entries()) {
+                if (key === 'price' || key === 'total' || key === 'depreciationRate' || key === 'accumulatedDepreciation') {
+                    itemData[key] = parseFloat(value) || 0;
+                } else if (key === 'quantity' || key === 'warrantyPeriod' || key === 'usefulLife') {
+                    itemData[key] = parseInt(value) || 0;
+                } else {
+                    itemData[key] = value;
+                }
+            }
+            
+            // Calculate warranty expiry if not set
+            if (itemData.purchaseDate && itemData.warrantyPeriod && !itemData.warrantyExpiry) {
+                const purchaseDate = new Date(itemData.purchaseDate);
+                const expiryDate = new Date(purchaseDate);
+                expiryDate.setMonth(expiryDate.getMonth() + itemData.warrantyPeriod);
+                itemData.warrantyExpiry = expiryDate.toISOString().split('T')[0];
+            }
+            
+            if (currentEditItem) {
+                // Update existing item
+                const index = allData.findIndex(item => 
+                    item.code === currentEditItem.originalCode && 
+                    item.category === currentEditItem.originalCategory
+                );
+                
+                if (index !== -1) {
+                    allData[index] = itemData;
+                    showMessage('อัปเดทข้อมูลสำเร็จ', 'success');
+                }
+            } else {
+                // Add new item
+                const existingItem = allData.find(item => item.code === itemData.code && item.category === itemData.category);
+                if (existingItem) {
+                    showMessage('รหัสครุภัณฑ์/พัสดุนี้มีอยู่แล้วในประเภทเดียวกัน', 'error');
+                    return;
+                }
+                
+                allData.push(itemData);
+                showMessage('เพิ่มข้อมูลสำเร็จ', 'success');
+            }
+            
+            closeModal();
+            displayData(allData);
+            updateStatistics(allData);
+            checkAlerts(allData);
+        }
+
+        function closeModal() {
+            document.getElementById('itemModal').classList.remove('show');
+            currentEditItem = null;
+        }
+
+        function closeDeleteModal() {
+            document.getElementById('deleteModal').classList.remove('show');
+            deleteItemCode = null;
+            deleteItemCategory = null;
+        }
+
+        function showLoading(show) {
+            const indicator = document.getElementById('loadingIndicator');
+            if (show) {
+                indicator.classList.remove('hidden');
+            } else {
+                indicator.classList.add('hidden');
+            }
+        }
+
+        function showMessage(message, type = 'info') {
+            const toast = document.createElement('div');
+            toast.className = `fixed top-4 right-4 z-50 px-6 py-3 rounded-lg shadow-lg text-white transform transition-all duration-300 translate-x-full ${
+                type === 'success' ? 'bg-green-500' : 
+                type === 'error' ? 'bg-red-500' : 'bg-blue-500'
+            }`;
+            toast.innerHTML = `
+                <div class="flex items-center">
+                    <i class="fas ${type === 'success' ? 'fa-check' : type === 'error' ? 'fa-exclamation-triangle' : 'fa-info'} mr-2"></i>
+                    ${message}
+                </div>
+            `;
+            
+            document.body.appendChild(toast);
+            
+            setTimeout(() => {
+                toast.classList.remove('translate-x-full');
+            }, 100);
+            
+            setTimeout(() => {
+                toast.classList.add('translate-x-full');
+                setTimeout(() => {
+                    if (document.body.contains(toast)) {
+                        document.body.removeChild(toast);
+                    }
+                }, 300);
+            }, 3000);
+        }
+
+        // Utility functions
+        function formatCurrency(amount) {
+            return new Intl.NumberFormat('th-TH', {
+                style: 'currency',
+                currency: 'THB'
+            }).format(amount || 0);
+        }
+
+        function getCategoryClass(category) {
+            switch(category) {
+                case 'ครุภัณฑ์': return 'bg-blue-100 text-blue-800';
+                case 'วัสดุคงทน': return 'bg-green-100 text-green-800';
+                case 'วัสดุสิ้นเปลือง': return 'bg-orange-100 text-orange-800';
+                default: return 'bg-gray-100 text-gray-800';
+            }
+        }
+
+        function getStatusClass(status) {
+            switch(status) {
+                case 'ใช้งานได้': return 'status-active';
+                case 'ซ่อมแซม': return 'status-repair';
+                case 'ชำรุด': return 'status-broken';
+                case 'จำหน่าย': return 'status-disposed';
+                case 'สำรอง': return 'status-reserved';
+                default: return 'status-disposed';
+            }
+        }
+    </script>
+<script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'982fe5cb43f77995',t:'MTc1ODUyNDEzNi4wMDAwMDA='};var a=document.createElement('script');a.nonce='';a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
+</html>
